@@ -1,0 +1,34 @@
+-- vim: ft=pgsql
+
+-----------------------------------------
+-- psqlrc file to set psql preferences --
+-- Author : Jesus Rafael Sanchez       --
+-----------------------------------------
+
+\set QUIET ON
+-- PostgreSQL DBA psql ToolKit
+\i ~/.config/psql/dba_toolkit.pgsql
+
+-- Interactive settings configuration
+\i ~/.config/psql/psql_interactive_settings.pgsql
+
+-- psql menu loader
+\i ~/.config/psql/psql_menu.pgsql
+
+-- Prompt settings configuration (for superuser)
+\i ~/.config/psql/psql_prompt-:is_superuser.pgsql
+
+\set QUIET OFF
+
+-- Menu reload
+\set menu '\\i ~/.config/psql/psql_menu.pgsql'
+
+-- Prompt reload
+\set prompt_reload '\\i ~/.config/psql/psql_prompt-:is_superuser.pgsql'
+
+-- Development tools:
+\set sp 'SHOW search_path;'
+\set clear '\\! clear;'
+\set ll '\\! ls -lrt;'
+
+
