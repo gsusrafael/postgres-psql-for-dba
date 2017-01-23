@@ -5,6 +5,8 @@
 -- Author : Jesus Rafael Sanchez       --
 -----------------------------------------
 
+-- Check if is superuser
+select current_setting('is_superuser') is_superuser \gset
 
 -- Server Settings
 SELECT $$
