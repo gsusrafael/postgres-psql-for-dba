@@ -43,7 +43,7 @@
 
 \echo 'Development queries:\n'
 \echo '\t:show_slow_queries\t-- Show slow queries (requires pg_stat_statements)'
-\echo '\t:prompt_reload\t-- Reloads prompt configuration on user change'
+\echo '\t:prompt_reload\t\t-- Reloads prompt configuration on user change'
 \echo '\t:sp\t\t\t-- Current Search Path'
 \echo '\t:clear\t\t\t-- Clear screen'
 \echo '\t:ll\t\t\t-- List\n'
