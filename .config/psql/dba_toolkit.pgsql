@@ -176,7 +176,8 @@ SELECT $$
  SELECT pid, 
         application_name AS source, 
         age(now(),query_start) AS running_for, 
-        waiting, query AS query 
+        wait_event_type, wait_event, 
+        query AS query 
    FROM pg_stat_activity 
   WHERE query <> '<insufficient privilege>' 
     AND state <> 'idle' 
