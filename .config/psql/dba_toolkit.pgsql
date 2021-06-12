@@ -487,11 +487,10 @@ SELECT $$
     (
         total_time / calls ) AS average_time,
     query
-FROM
-    pg_stat_statements
-ORDER BY
-    1 DESC
-LIMIT 100;
+   FROM pg_stat_statements
+  ORDER BY
+      1 DESC
+  LIMIT 100;
 $$ show_slow_queries \gset
 
 -- Show which tables are closest to transaction id wraparound
@@ -524,6 +523,7 @@ SELECT $$
    FROM pg_stat_database;
 $$ db_cache_hit \gset
 
+-- Shows the background and backend writer stats
 SELECT $$
   SELECT 
         now()-pg_postmaster_start_time()    "Uptime", now()-stats_reset     "Since stats reset",
@@ -570,3 +570,149 @@ SELECT $$
     JOIN pg_settings block ON block.name = 'block_size'
         ) np;   -- don't print that
 $$ bgwriter_stats \gset
+
+
+-- Shows the tables canditates to be moved to an SSD storage
+SELECT $$
+  SELECT * 
+    FROM (
+        WITH totals_counts AS (
+          SELECT
+             sum(pg_stat_get_blocks_fetched(c.oid)-pg_stat_get_blocks_hit(c.oid)+pg_stat_get_blocks_fetched(c.reltoastrelid)-pg_stat_get_blocks_hit(c.reltoastrelid)) as disk,
+             sum(pg_stat_get_tuples_inserted(c.oid)+pg_stat_get_tuples_inserted(c.reltoastrelid)+2*(pg_stat_get_tuples_updated(c.oid)+pg_stat_get_tuples_updated(c.reltoastrelid))+pg_stat_get_tuples_deleted(c.oid)+pg_stat_get_tuples_deleted(c.reltoastrelid)) as write
+            FROM pg_class c
+           WHERE c.relkind='r'
+        )
+        SELECT (n.nspname||'.'||c.relname)::varchar(30),
+               t.spcname AS tblsp,
+               pg_size_pretty(
+                pg_relation_size(c.oid) + ( 
+                    CASE 
+                        WHEN c.reltoastrelid = 0 
+                            THEN 0 
+                        ELSE 
+                            pg_total_relation_size(c.reltoastrelid) 
+                    END)
+                ) AS size,
+               ( pg_stat_get_blocks_fetched(c.oid) - 
+                 pg_stat_get_blocks_hit(c.oid) + 
+                 pg_stat_get_blocks_fetched(c.reltoastrelid) - 
+                 pg_stat_get_blocks_hit(c.reltoastrelid) ) / 
+               GREATEST(
+                1, 
+                ( pg_stat_get_tuples_inserted(c.oid) + 
+                  pg_stat_get_tuples_inserted(c.reltoastrelid) + 2 * 
+                  ( pg_stat_get_tuples_updated(c.oid) + 
+                    pg_stat_get_tuples_updated(c.reltoastrelid) ) + 
+                  pg_stat_get_tuples_deleted(c.oid) + 
+                  pg_stat_get_tuples_deleted(c.reltoastrelid) ) 
+               ) AS ratio,
+               ( pg_stat_get_blocks_fetched(c.oid) - 
+                 pg_stat_get_blocks_hit(c.oid) + 
+                 pg_stat_get_blocks_fetched(c.reltoastrelid) - 
+                 pg_stat_get_blocks_hit(c.reltoastrelid) ) AS disk,
+               ( ( 100 * 
+                   ( pg_stat_get_blocks_fetched(c.oid) - 
+                     pg_stat_get_blocks_hit(c.oid) + 
+                     pg_stat_get_blocks_fetched(c.reltoastrelid) - 
+                     pg_stat_get_blocks_hit(c.reltoastrelid)) ) /
+                   ( SELECT disk FROM totals_counts )
+               )::numeric(5,2) AS "disk %",
+               ( ( SELECT 
+                      SUM(pg_stat_get_tuples_fetched(i.indexrelid))::bigint 
+                     FROM pg_index i 
+                    WHERE i.indrelid = c.oid ) + 
+                 pg_stat_get_tuples_fetched(c.oid) ) / 
+               GREATEST(
+                1, 
+                ( pg_stat_get_blocks_fetched(c.oid) - 
+                  pg_stat_get_blocks_hit(c.oid) + 
+                  pg_stat_get_blocks_fetched(c.reltoastrelid) -
+                  pg_stat_get_blocks_hit(c.reltoastrelid) )
+               ) AS rt_d_rat,
+               ( ( SELECT SUM(pg_stat_get_tuples_fetched(i.indexrelid))::bigint 
+                     FROM pg_index i 
+                    WHERE i.indrelid=c.oid ) + 
+                 pg_stat_get_tuples_fetched(c.oid)
+               ) AS r_tuples,
+               ( pg_stat_get_tuples_inserted(c.oid) + 
+                 pg_stat_get_tuples_inserted(c.reltoastrelid) +
+                 2 * 
+                ( pg_stat_get_tuples_updated(c.oid) + 
+                  pg_stat_get_tuples_updated(c.reltoastrelid) ) +
+                pg_stat_get_tuples_deleted(c.oid) + 
+                pg_stat_get_tuples_deleted(c.reltoastrelid)
+               ) AS "write",
+               ( ( 100 * 
+                   ( pg_stat_get_tuples_inserted(c.oid) + 
+                     pg_stat_get_tuples_inserted(c.reltoastrelid) +
+                     2 * 
+                     ( pg_stat_get_tuples_updated(c.oid) + 
+                       pg_stat_get_tuples_updated(c.reltoastrelid) ) +
+                     pg_stat_get_tuples_deleted(c.oid) + 
+                     pg_stat_get_tuples_deleted(c.reltoastrelid)
+                   )
+                 ) / ( SELECT write FROM totals_counts))::numeric(5,2) AS "write %",
+               pg_stat_get_tuples_inserted(c.oid) + pg_stat_get_tuples_inserted(c.reltoastrelid) AS n_tup_ins,
+               pg_stat_get_tuples_updated(c.oid) + pg_stat_get_tuples_updated(c.reltoastrelid) AS n_tup_upd,
+               pg_stat_get_tuples_deleted(c.oid) + pg_stat_get_tuples_deleted(c.reltoastrelid) AS n_tup_del
+          FROM pg_class c
+          LEFT JOIN pg_namespace n 
+            ON n.oid = c.relnamespace
+          LEFT JOIN pg_tablespace t 
+            ON t.oid=c.reltablespace
+         WHERE c.relkind='r'
+           AND n.nspname IS DISTINCT FROM 'pg_catalog'
+           AND t.spcname IS DISTINCT FROM 'ssd'
+    ) AS t1 
+  WHERE ratio > 10
+    AND disk > 1000
+  ORDER BY disk DESC NULLS LAST LIMIT 100;
+$$ table_candidates_to_ssd \gset
+
+
+-- Show shared_buffers and os pagecache stat for current database
+-- Require pg_buffercache and pgfincore
+SELECT $$
+  WITH qq AS (
+    SELECT c.oid,
+           count(b.bufferid) * 8192 AS size,
+           (SELECT sum(pages_mem) * 4096 
+              FROM pgfincore(c.oid::regclass) ) AS size_in_pagecache
+      FROM pg_buffercache b
+     INNER JOIN pg_class c 
+        ON b.relfilenode = pg_relation_filenode(c.oid)
+       AND b.reldatabase 
+        IN (0, 
+            ( SELECT oid 
+                FROM pg_database 
+               WHERE datname = current_database()
+            ))
+     GROUP BY 1)
+  SELECT
+         pg_size_pretty(sum(qq.size)) AS shared_buffers_size,
+         pg_size_pretty(sum(qq.size_in_pagecache)) AS size_in_pagecache,
+         pg_size_pretty(pg_database_size(current_database())) as database_size
+    FROM qq;
+$$ cache_stat \gset
+
+
+-- Shows the top 20 tables with sequential scan on tuple read
+SELECT $$
+  SELECT schemaname||'.'||relname "relation name",
+         n_live_tup as "number of live tuples",
+         seq_scan as "sequential scan",
+         seq_tup_read as "sequential tuple read",
+         (coalesce(n_tup_ins,0)+coalesce(n_tup_upd,0)+coalesce(n_tup_del,0)) as "write activity",
+         (SELECT count(*) FROM pg_index WHERE pg_index.indrelid=pg_stat_all_tables.relid) AS "index count",
+         idx_scan as "index scan",
+         idx_tup_fetch as "indexed tuple fetch"
+    FROM pg_stat_all_tables
+   WHERE seq_scan > 0
+     AND seq_tup_read > 100000
+     AND schemaname <> 'pg_catalog'
+   ORDER BY seq_tup_read DESC
+   LIMIT 20;
+$$ seq_scan_tables \gset
+
+

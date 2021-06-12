@@ -39,5 +39,14 @@
 -- Setting pager
 \setenv PAGER less
 \setenv LESS '-iMSx4 -FX'
+
+-- ----------------------------------------------------------------------------
+-- There is option to use pspg (https://github.com/okbob/pspg), which is an
+-- specialized PostgreSQL pager designed to ease the data presentation:
+--
+-- \setenv PAGER 'pspg '
+--
+-- ----------------------------------------------------------------------------
+
 \timing on
 

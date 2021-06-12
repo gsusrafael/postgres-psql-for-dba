@@ -35,6 +35,9 @@
 \echo '\t:pg_near_tx_wrap\t-- Show which tables are closest to transaction id wraparound'
 \echo '\t:cache_hit_explain\t-- Show page cache hits (and misses) in query explain plan (ends with semi-colon [;])'
 \echo '\t:db_cache_hit\t\t-- Calculate the database cache hit ratio'
+\echo '\t:table_candidates_to_ssd\t\t-- Show tables which should be moved to SSD (low writes, high reads)'
+\echo '\t:cache_stat\t\t-- Show shared_buffers and os pagecache stat for current database (needs pgfincore and pg_buffercache)'
+\echo '\t:seq_scan_tables\t -- Shows the top 20 tables with sequential scan on tuple read'
 
 
 \echo '\t:menu\t\t\t-- Help Menu'
