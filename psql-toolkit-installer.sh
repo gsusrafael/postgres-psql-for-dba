@@ -28,6 +28,7 @@ install_process() {
 }
 
 
+splash
 
 if [ ! -d ${HOME}/.config/psql ];
 then
@@ -44,6 +45,8 @@ else
     install_process
     RETVAL=$?
 fi
+
+echo "Install finished"
 
 exit ${RETVAL}
 
