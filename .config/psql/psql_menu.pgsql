@@ -38,6 +38,8 @@
 \echo '\t:table_candidates_to_ssd \t-- Show tables which should be moved to SSD (low writes, high reads)'
 \echo '\t:cache_stat  \t\t\t-- Show shared_buffers and os pagecache stat for current database (needs pgfincore and pg_buffercache)'
 \echo '\t:seq_scan_tables  \t\t-- Shows the top 20 tables with sequential scan on tuple read'
+\echo '\t:cache_hit_tables  \t\t-- Monitor your cache hit ratio for tables '
+\echo '\t:dead_tuples_monitor  \t\t--  Dead tuples bloat monitoring '
 
 
 \echo '\t:menu  \t\t\t\t-- Help Menu'
