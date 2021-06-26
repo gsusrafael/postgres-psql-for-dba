@@ -5,153 +5,166 @@
 -- Author : Jesus Rafael Sanchez       --
 -----------------------------------------
 
+/**
+ * ---------------------------------------------------------------------------
+ * This is the proper way to add a new command to our toolkit:
+ *
+ * -- Header explaining the command
+ * SELECT $$
+ *  -- this is the right position to start
+ *  -- coding our command body
+ * $$ command_name \gset
+ *
+ * ---------------------------------------------------------------------------
+ */
+
 -- Check if is superuser
 select current_setting('is_superuser') is_superuser \gset
 
 -- Server Settings
 SELECT $$
- SELECT name, 
+ SELECT name,
         setting,
         unit,
-        context 
+        context
    FROM pg_settings;
 $$ settings \gset
 
 -- Slow queries
 SELECT $$
- SELECT (total_time / 1000 / 60) as total_minutes, 
-        (total_time/calls) as average_time, 
-        query 
-   FROM pg_stat_statements 
-  ORDER BY 1 DESC 
+ SELECT (total_time / 1000 / 60) as total_minutes,
+        (total_time/calls) as average_time,
+        query
+   FROM pg_stat_statements
+  ORDER BY 1 DESC
   LIMIT 100;
 $$ slowq \gset
 
 -- Locks in the server
 SELECT $$
- SELECT bl.pid AS blocked_pid, 
-        a.usename AS blocked_user, 
-        kl.pid AS blocking_pid, 
-        ka.usename AS blocking_user, 
-        a.query AS blocked_statement 
-   FROM pg_catalog.pg_locks bl 
-        JOIN pg_catalog.pg_stat_activity a 
+ SELECT bl.pid AS blocked_pid,
+        a.usename AS blocked_user,
+        kl.pid AS blocking_pid,
+        ka.usename AS blocking_user,
+        a.query AS blocked_statement
+   FROM pg_catalog.pg_locks bl
+        JOIN pg_catalog.pg_stat_activity a
           ON bl.pid = a.pid
-        JOIN pg_catalog.pg_locks kl 
-        JOIN pg_catalog.pg_stat_activity ka 
-          ON kl.pid = ka.pid 
-          ON bl.transactionid = kl.transactionid 
-         AND bl.pid != kl.pid 
+        JOIN pg_catalog.pg_locks kl
+        JOIN pg_catalog.pg_stat_activity ka
+          ON kl.pid = ka.pid
+          ON bl.transactionid = kl.transactionid
+         AND bl.pid != kl.pid
   WHERE NOT bl.granted;
 $$ locks \gset
 
 -- Lock info (provided by pg_stat_activity plugin)
 SELECT $$
- SELECT pg_stat_activity.pid, 
-        pg_class.relname, 
-        pg_locks.transactionid, 
-        pg_locks.granted, 
-        substr(pg_stat_activity.query,1,30) as query_snippet, 
-        age(now(), pg_stat_activity.query_start) as "age" 
-   FROM pg_stat_activity,pg_locks 
-        LEFT OUTER JOIN pg_class 
+ SELECT pg_stat_activity.pid,
+        pg_class.relname,
+        pg_locks.transactionid,
+        pg_locks.granted,
+        substr(pg_stat_activity.query,1,30) as query_snippet,
+        age(now(), pg_stat_activity.query_start) as "age"
+   FROM pg_stat_activity,pg_locks
+        LEFT OUTER JOIN pg_class
           ON pg_locks.relation = pg_class.oid
-  WHERE pg_stat_activity.query <> '<insufficient privilege>' 
-    AND pg_locks.pid=pg_stat_activity.pid 
-    AND pg_locks.mode = 'ExclusiveLock' 
+  WHERE pg_stat_activity.query <> '<insufficient privilege>'
+    AND pg_locks.pid=pg_stat_activity.pid
+    AND pg_locks.mode = 'ExclusiveLock'
   ORDER BY query_start;
 $$ lock_info \gset
 
 -- Connection info
 SELECT $$
- SELECT usename, 
-        count(*) 
-   FROM pg_stat_activity 
+ SELECT usename,
+        count(*)
+   FROM pg_stat_activity
   GROUP by usename;
 $$ conninfo \gset
 
 -- Server activity
 SELECT $$
- SELECT datname, 
-        pid, 
-        usename, 
+ SELECT datname,
+        pid,
+        usename,
         application_name,
-        client_addr, 
-        client_hostname, 
-        client_port, 
-        query, 
-        state 
+        client_addr,
+        client_hostname,
+        client_port,
+        query,
+        state
    FROM pg_stat_activity;
 $$ activity \gset
 
 -- Server waiting queries
 SELECT $$
- SELECT pg_stat_activity.pid, 
-        pg_stat_activity.query, 
-        pg_stat_activity.waiting, 
+ SELECT pg_stat_activity.pid,
+        pg_stat_activity.query,
+        pg_stat_activity.waiting,
         now() - pg_stat_activity.query_start AS "total time",
-        pg_stat_activity.backend_start 
-   FROM pg_stat_activity 
-  WHERE pg_stat_activity.query !~ '%IDLE%'::text 
+        pg_stat_activity.backend_start
+   FROM pg_stat_activity
+  WHERE pg_stat_activity.query !~ '%IDLE%'::text
     AND pg_stat_activity.waiting = true;
 $$ waits \gset
 
 -- Database size
 SELECT $$
- SELECT datname, 
-        pg_size_pretty(pg_database_size(datname)) db_size 
-   FROM pg_database 
+ SELECT datname,
+        pg_size_pretty(pg_database_size(datname)) db_size
+   FROM pg_database
   ORDER BY db_size;
 $$ dbsize \gset
 
 -- Table size
 SELECT $$
  SELECT nspname || '.' || relname AS "relation",
-        pg_size_pretty(pg_relation_size(C.oid)) AS "size" 
-   FROM pg_class C 
-        LEFT JOIN pg_namespace N 
-          ON (N.oid = C.relnamespace) 
-  WHERE nspname NOT IN ('pg_catalog', 'information_schema') 
-  ORDER BY pg_relation_size(C.oid) DESC 
+        pg_size_pretty(pg_relation_size(C.oid)) AS "size"
+   FROM pg_class C
+        LEFT JOIN pg_namespace N
+          ON (N.oid = C.relnamespace)
+  WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+  ORDER BY pg_relation_size(C.oid) DESC
   LIMIT 40;
 $$ tablesize \gset
 
--- Useless columns 
+-- Useless columns
 SELECT $$
- SELECT nspname, 
-        relname, 
-        attname, 
-        typname, 
-        (stanullfrac * 100)::int AS null_percent, 
-        CASE 
-            WHEN stadistinct >= 0 THEN 
-                stadistinct 
-            ELSE 
-                abs(stadistinct)*reltuples 
-        END AS "distinct", 
-        CASE 1 
-            WHEN stakind1 THEN 
-                stavalues1 
-            WHEN stakind2 THEN 
-                stavalues2 
-        END AS "values" 
-   FROM pg_class c 
-        JOIN pg_namespace ns 
+ SELECT nspname,
+        relname,
+        attname,
+        typname,
+        (stanullfrac * 100)::int AS null_percent,
+        CASE
+            WHEN stadistinct >= 0 THEN
+                stadistinct
+            ELSE
+                abs(stadistinct)*reltuples
+        END AS "distinct",
+        CASE 1
+            WHEN stakind1 THEN
+                stavalues1
+            WHEN stakind2 THEN
+                stavalues2
+        END AS "values"
+   FROM pg_class c
+        JOIN pg_namespace ns
           ON ns.oid = relnamespace
-        JOIN pg_attribute 
+        JOIN pg_attribute
           ON c.oid = attrelid
-        JOIN pg_type t 
+        JOIN pg_type t
           ON t.oid = atttypid
-        JOIN pg_statistic 
-          ON c.oid=starelid 
-         AND staattnum=attnum 
-  WHERE nspname NOT LIKE E'pg\\_%' 
-    AND nspname != 'information_schema' 
-    AND relkind='r' 
-    AND NOT attisdropped 
-    AND attstattarget != 0 
-    AND reltuples >= 100 
-    AND stadistinct BETWEEN 0 AND 1 
+        JOIN pg_statistic
+          ON c.oid=starelid
+         AND staattnum=attnum
+  WHERE nspname NOT LIKE E'pg\\_%'
+    AND nspname != 'information_schema'
+    AND relkind='r'
+    AND NOT attisdropped
+    AND attstattarget != 0
+    AND reltuples >= 100
+    AND stadistinct BETWEEN 0 AND 1
   ORDER BY nspname, relname, attname;
 $$ uselesscol \gset
 
@@ -162,41 +175,41 @@ $$ uptime \gset
 
 -- Long Running Queries
 SELECT $$
- SELECT pid, 
-        now() - pg_stat_activity.query_start AS duration, 
-        query AS query 
-   FROM pg_stat_activity 
-  WHERE pg_stat_activity.query <> ''::text 
-    AND now() - pg_stat_activity.query_start > interval '5 minutes' 
+ SELECT pid,
+        now() - pg_stat_activity.query_start AS duration,
+        query AS query
+   FROM pg_stat_activity
+  WHERE pg_stat_activity.query <> ''::text
+    AND now() - pg_stat_activity.query_start > interval '5 minutes'
   ORDER BY now() - pg_stat_activity.query_start DESC;
 $$ long_running_queries \gset
 
 -- Process Summary (ps)
 SELECT $$
- SELECT pid, 
-        application_name AS source, 
-        age(now(),query_start) AS running_for, 
-        wait_event_type, wait_event, 
-        query AS query 
-   FROM pg_stat_activity 
-  WHERE query <> '<insufficient privilege>' 
-    AND state <> 'idle' 
-    AND pid <> pg_backend_pid() 
+ SELECT pid,
+        application_name AS source,
+        age(now(),query_start) AS running_for,
+        wait_event_type, wait_event,
+        query AS query
+   FROM pg_stat_activity
+  WHERE query <> '<insufficient privilege>'
+    AND state <> 'idle'
+    AND pid <> pg_backend_pid()
   ORDER BY 3 DESC;
 $$ ps \gset
 
 -- Sequential Scans per table/relation
 SELECT $$
- SELECT relname AS name, 
-        seq_scan as count 
-   FROM pg_stat_user_tables 
+ SELECT relname AS name,
+        seq_scan as count
+   FROM pg_stat_user_tables
   ORDER BY seq_scan DESC;
 $$ seq_scans \gset
 
 -- Total index size in database
 SELECT $$
- SELECT pg_size_pretty(sum(relpages*1024)) AS size 
-   FROM pg_class 
+ SELECT pg_size_pretty(sum(relpages*1024)) AS size
+   FROM pg_class
   WHERE reltype=0;
 $$ total_index_size \gset
 
@@ -205,14 +218,14 @@ SELECT $$
  SELECT schemaname || '.' || relname AS "table",
         indexrelname AS index,
         pg_size_pretty(pg_relation_size(i.indexrelid)) AS index_size,
-        idx_scan AS index_scans 
-   FROM pg_stat_user_indexes ui 
-        JOIN pg_index i 
-          ON ui.indexrelid = i.indexrelid 
-  WHERE NOT indisunique 
-    AND idx_scan < 50 
-    AND pg_relation_size(relid) > 5 * 8192 
-  ORDER BY pg_relation_size(i.indexrelid) / nullif(idx_scan, 0) DESC 
+        idx_scan AS index_scans
+   FROM pg_stat_user_indexes ui
+        JOIN pg_index i
+          ON ui.indexrelid = i.indexrelid
+  WHERE NOT indisunique
+    AND idx_scan < 50
+    AND pg_relation_size(relid) > 5 * 8192
+  ORDER BY pg_relation_size(i.indexrelid) / nullif(idx_scan, 0) DESC
   NULLS FIRST, pg_relation_size(i.indexrelid) DESC;
 $$ unused_indexes \gset
 
@@ -228,7 +241,7 @@ SELECT $$
  no_stats AS (
      -- screen out table who have attributes
      -- which dont have stats, such as JSON
-     SELECT table_schema, table_name, 
+     SELECT table_schema, table_name,
          n_live_tup::numeric as est_rows,
          pg_table_size(relid)::numeric as table_size
      FROM information_schema.columns
@@ -238,7 +251,7 @@ SELECT $$
          LEFT OUTER JOIN pg_stats
          ON table_schema = pg_stats.schemaname
              AND table_name = pg_stats.tablename
-             AND column_name = attname 
+             AND column_name = attname
      WHERE attname IS NULL
          AND table_schema NOT IN ('pg_catalog', 'information_schema')
      GROUP BY table_schema, table_name, relid, n_live_tup
@@ -293,9 +306,9 @@ SELECT $$
  ),
  estimates_with_toast AS (
      -- add in estimated TOAST table sizes
-     -- estimate based on 4 toast tuples per page because we dont have 
+     -- estimate based on 4 toast tuples per page because we dont have
      -- anything better.  also append the no_data tables
-     SELECT schemaname, tablename, 
+     SELECT schemaname, tablename,
          TRUE as can_estimate,
          est_rows,
          table_bytes + ( coalesce(toast.relpages, 0) * bs ) as table_bytes,
@@ -310,13 +323,13 @@ SELECT $$
  -- including whether we cant estimate it
  -- or whether we think it might be compressed
      SELECT current_database() as databasename,
-             schemaname, tablename, can_estimate, 
+             schemaname, tablename, can_estimate,
              est_rows,
              CASE WHEN table_bytes > 0
                  THEN table_bytes::NUMERIC
                  ELSE NULL::NUMERIC END
                  AS table_bytes,
-             CASE WHEN expected_bytes > 0 
+             CASE WHEN expected_bytes > 0
                  THEN expected_bytes::NUMERIC
                  ELSE NULL::NUMERIC END
                      AS expected_bytes,
@@ -326,8 +339,8 @@ SELECT $$
                  ELSE 0::NUMERIC END AS bloat_bytes
      FROM estimates_with_toast
      UNION ALL
-     SELECT current_database() as databasename, 
-         table_schema, table_name, FALSE, 
+     SELECT current_database() as databasename,
+         table_schema, table_name, FALSE,
          est_rows, table_size,
          NULL::NUMERIC, NULL::NUMERIC
      FROM no_stats
@@ -335,7 +348,7 @@ SELECT $$
  bloat_data AS (
      -- do final math calculations and formatting
      select current_database() as databasename,
-         schemaname, tablename, can_estimate, 
+         schemaname, tablename, can_estimate,
          table_bytes, round(table_bytes/(1024^2)::NUMERIC,3) as table_mb,
          expected_bytes, round(expected_bytes/(1024^2)::NUMERIC,3) as expected_mb,
          round(bloat_bytes*100/table_bytes) as pct_bloat,
@@ -360,7 +373,7 @@ SELECT $$
  ORDER BY pct_bloat DESC;
 $$ pg_bloat \gset
 
--- PostgreSQL Blocking Queries 
+-- PostgreSQL Blocking Queries
 SELECT $$
  SELECT	bl.pid AS blocked_pid,
         a.query AS blocking_statement,
@@ -371,8 +384,8 @@ SELECT $$
    FROM pg_catalog.pg_locks bl
    JOIN pg_catalog.pg_stat_activity a ON bl.pid = a.pid
    JOIN pg_catalog.pg_locks kl
-   JOIN pg_catalog.pg_stat_activity ka 
-        ON kl.pid = ka.pid 
+   JOIN pg_catalog.pg_stat_activity ka
+        ON kl.pid = ka.pid
         ON bl.transactionid = kl.transactionid
     AND bl.pid != kl.pid
   WHERE NOT bl.granted;
@@ -404,9 +417,9 @@ $$ pg_index_size \gset
 SELECT $$
  SELECT relname,
         CASE idx_scan
-          WHEN 0 THEN 
+          WHEN 0 THEN
 			'Insufficient data'
-          ELSE 
+          ELSE
 		    (100 * idx_scan / (seq_scan + idx_scan ) ) ::text
     	END percent_of_times_index_used,
     	n_live_tup rows_in_table
@@ -416,7 +429,7 @@ $$ pg_index_usage \gset
 
 -- PostgreSQL Locks
 SELECT $$
- SELECT 
+ SELECT
      pg_stat_activity.pid,
      pg_class.relname,
      pg_locks.transactionid,
@@ -497,17 +510,17 @@ $$ show_slow_queries \gset
 SELECT $$
  SELECT scma.nspname AS scma,
           tbl.relname AS tbl,
-          ((SELECT setting 
-			  FROM pg_settings 
+          ((SELECT setting
+			  FROM pg_settings
 			 WHERE name = 'autovacuum_freeze_max_age')::bigint - age(tbl.relfrozenxid)) as tx_until_forced_autovacuum
    FROM pg_class AS tbl
-   LEFT JOIN pg_namespace scma 
+   LEFT JOIN pg_namespace scma
           ON scma.oid = tbl.relnamespace
   WHERE scma.nspname NOT IN ('pg_catalog', 'information_schema')
     AND scma.nspname not like 'pg_temp_%'
     AND tbl.relkind = 'r'
-    AND ((SELECT setting 
-            FROM pg_settings 
+    AND ((SELECT setting
+            FROM pg_settings
            WHERE name = 'autovacuum_freeze_max_age')::bigint - age(tbl.relfrozenxid)) < 500000000
   ORDER BY tx_until_forced_autovacuum ASC;
 $$ pg_near_tx_wrap \gset
@@ -519,13 +532,13 @@ $$ cache_hit_explain \gset
 
 -- Calculate the database cache hit ratio
 SELECT $$
- SELECT sum(blks_hit) * 100 / sum(blks_hit + blks_read) AS hit_ratio 
+ SELECT sum(blks_hit) * 100 / sum(blks_hit + blks_read) AS hit_ratio
    FROM pg_stat_database;
 $$ db_cache_hit \gset
 
 -- Shows the background and backend writer stats
 SELECT $$
-  SELECT 
+  SELECT
         now()-pg_postmaster_start_time()    "Uptime", now()-stats_reset     "Since stats reset",
         round(100.0*checkpoints_req/total_checkpoints,1)                    "Forced checkpoint ratio (%)",
         round(np.min_since_reset/total_checkpoints,2)                       "Minutes between checkpoints",
@@ -537,7 +550,7 @@ SELECT $$
         round(buffers_clean/(np.mp*np.min_since_reset*60),2)                "Bgwriter MBps",
         round(buffers_backend/(np.mp*np.min_since_reset*60),2)              "Backend MBps",
         round(total_buffers/(np.mp*np.min_since_reset*60),2)                "Total MBps",
-        round(1.0*buffers_alloc/total_buffers,3)                            "New buffer allocation ratio",        
+        round(1.0*buffers_alloc/total_buffers,3)                            "New buffer allocation ratio",
         round(100.0*buffers_checkpoint/total_buffers,1)                     "Clean by checkpoints (%)",
         round(100.0*buffers_clean/total_buffers,1)                          "Clean by bgwriter (%)",
         round(100.0*buffers_backend/total_buffers,1)                        "Clean by backends (%)",
@@ -574,7 +587,7 @@ $$ bgwriter_stats \gset
 
 -- Shows the tables canditates to be moved to an SSD storage
 SELECT $$
-  SELECT * 
+  SELECT *
     FROM (
         WITH totals_counts AS (
           SELECT
@@ -586,70 +599,70 @@ SELECT $$
         SELECT (n.nspname||'.'||c.relname)::varchar(30),
                t.spcname AS tblsp,
                pg_size_pretty(
-                pg_relation_size(c.oid) + ( 
-                    CASE 
-                        WHEN c.reltoastrelid = 0 
-                            THEN 0 
-                        ELSE 
-                            pg_total_relation_size(c.reltoastrelid) 
+                pg_relation_size(c.oid) + (
+                    CASE
+                        WHEN c.reltoastrelid = 0
+                            THEN 0
+                        ELSE
+                            pg_total_relation_size(c.reltoastrelid)
                     END)
                 ) AS size,
-               ( pg_stat_get_blocks_fetched(c.oid) - 
-                 pg_stat_get_blocks_hit(c.oid) + 
-                 pg_stat_get_blocks_fetched(c.reltoastrelid) - 
-                 pg_stat_get_blocks_hit(c.reltoastrelid) ) / 
+               ( pg_stat_get_blocks_fetched(c.oid) -
+                 pg_stat_get_blocks_hit(c.oid) +
+                 pg_stat_get_blocks_fetched(c.reltoastrelid) -
+                 pg_stat_get_blocks_hit(c.reltoastrelid) ) /
                GREATEST(
-                1, 
-                ( pg_stat_get_tuples_inserted(c.oid) + 
-                  pg_stat_get_tuples_inserted(c.reltoastrelid) + 2 * 
-                  ( pg_stat_get_tuples_updated(c.oid) + 
-                    pg_stat_get_tuples_updated(c.reltoastrelid) ) + 
-                  pg_stat_get_tuples_deleted(c.oid) + 
-                  pg_stat_get_tuples_deleted(c.reltoastrelid) ) 
+                1,
+                ( pg_stat_get_tuples_inserted(c.oid) +
+                  pg_stat_get_tuples_inserted(c.reltoastrelid) + 2 *
+                  ( pg_stat_get_tuples_updated(c.oid) +
+                    pg_stat_get_tuples_updated(c.reltoastrelid) ) +
+                  pg_stat_get_tuples_deleted(c.oid) +
+                  pg_stat_get_tuples_deleted(c.reltoastrelid) )
                ) AS ratio,
-               ( pg_stat_get_blocks_fetched(c.oid) - 
-                 pg_stat_get_blocks_hit(c.oid) + 
-                 pg_stat_get_blocks_fetched(c.reltoastrelid) - 
+               ( pg_stat_get_blocks_fetched(c.oid) -
+                 pg_stat_get_blocks_hit(c.oid) +
+                 pg_stat_get_blocks_fetched(c.reltoastrelid) -
                  pg_stat_get_blocks_hit(c.reltoastrelid) ) AS disk,
-               ( ( 100 * 
-                   ( pg_stat_get_blocks_fetched(c.oid) - 
-                     pg_stat_get_blocks_hit(c.oid) + 
-                     pg_stat_get_blocks_fetched(c.reltoastrelid) - 
+               ( ( 100 *
+                   ( pg_stat_get_blocks_fetched(c.oid) -
+                     pg_stat_get_blocks_hit(c.oid) +
+                     pg_stat_get_blocks_fetched(c.reltoastrelid) -
                      pg_stat_get_blocks_hit(c.reltoastrelid)) ) /
                    ( SELECT disk FROM totals_counts )
                )::numeric(5,2) AS "disk %",
-               ( ( SELECT 
-                      SUM(pg_stat_get_tuples_fetched(i.indexrelid))::bigint 
-                     FROM pg_index i 
-                    WHERE i.indrelid = c.oid ) + 
-                 pg_stat_get_tuples_fetched(c.oid) ) / 
+               ( ( SELECT
+                      SUM(pg_stat_get_tuples_fetched(i.indexrelid))::bigint
+                     FROM pg_index i
+                    WHERE i.indrelid = c.oid ) +
+                 pg_stat_get_tuples_fetched(c.oid) ) /
                GREATEST(
-                1, 
-                ( pg_stat_get_blocks_fetched(c.oid) - 
-                  pg_stat_get_blocks_hit(c.oid) + 
+                1,
+                ( pg_stat_get_blocks_fetched(c.oid) -
+                  pg_stat_get_blocks_hit(c.oid) +
                   pg_stat_get_blocks_fetched(c.reltoastrelid) -
                   pg_stat_get_blocks_hit(c.reltoastrelid) )
                ) AS rt_d_rat,
-               ( ( SELECT SUM(pg_stat_get_tuples_fetched(i.indexrelid))::bigint 
-                     FROM pg_index i 
-                    WHERE i.indrelid=c.oid ) + 
+               ( ( SELECT SUM(pg_stat_get_tuples_fetched(i.indexrelid))::bigint
+                     FROM pg_index i
+                    WHERE i.indrelid=c.oid ) +
                  pg_stat_get_tuples_fetched(c.oid)
                ) AS r_tuples,
-               ( pg_stat_get_tuples_inserted(c.oid) + 
+               ( pg_stat_get_tuples_inserted(c.oid) +
                  pg_stat_get_tuples_inserted(c.reltoastrelid) +
-                 2 * 
-                ( pg_stat_get_tuples_updated(c.oid) + 
+                 2 *
+                ( pg_stat_get_tuples_updated(c.oid) +
                   pg_stat_get_tuples_updated(c.reltoastrelid) ) +
-                pg_stat_get_tuples_deleted(c.oid) + 
+                pg_stat_get_tuples_deleted(c.oid) +
                 pg_stat_get_tuples_deleted(c.reltoastrelid)
                ) AS "write",
-               ( ( 100 * 
-                   ( pg_stat_get_tuples_inserted(c.oid) + 
+               ( ( 100 *
+                   ( pg_stat_get_tuples_inserted(c.oid) +
                      pg_stat_get_tuples_inserted(c.reltoastrelid) +
-                     2 * 
-                     ( pg_stat_get_tuples_updated(c.oid) + 
+                     2 *
+                     ( pg_stat_get_tuples_updated(c.oid) +
                        pg_stat_get_tuples_updated(c.reltoastrelid) ) +
-                     pg_stat_get_tuples_deleted(c.oid) + 
+                     pg_stat_get_tuples_deleted(c.oid) +
                      pg_stat_get_tuples_deleted(c.reltoastrelid)
                    )
                  ) / ( SELECT write FROM totals_counts))::numeric(5,2) AS "write %",
@@ -657,14 +670,14 @@ SELECT $$
                pg_stat_get_tuples_updated(c.oid) + pg_stat_get_tuples_updated(c.reltoastrelid) AS n_tup_upd,
                pg_stat_get_tuples_deleted(c.oid) + pg_stat_get_tuples_deleted(c.reltoastrelid) AS n_tup_del
           FROM pg_class c
-          LEFT JOIN pg_namespace n 
+          LEFT JOIN pg_namespace n
             ON n.oid = c.relnamespace
-          LEFT JOIN pg_tablespace t 
+          LEFT JOIN pg_tablespace t
             ON t.oid=c.reltablespace
          WHERE c.relkind='r'
            AND n.nspname IS DISTINCT FROM 'pg_catalog'
            AND t.spcname IS DISTINCT FROM 'ssd'
-    ) AS t1 
+    ) AS t1
   WHERE ratio > 10
     AND disk > 1000
   ORDER BY disk DESC NULLS LAST LIMIT 100;
@@ -677,15 +690,15 @@ SELECT $$
   WITH qq AS (
     SELECT c.oid,
            count(b.bufferid) * 8192 AS size,
-           (SELECT sum(pages_mem) * 4096 
+           (SELECT sum(pages_mem) * 4096
               FROM pgfincore(c.oid::regclass) ) AS size_in_pagecache
       FROM pg_buffercache b
-     INNER JOIN pg_class c 
+     INNER JOIN pg_class c
         ON b.relfilenode = pg_relation_filenode(c.oid)
-       AND b.reldatabase 
-        IN (0, 
-            ( SELECT oid 
-                FROM pg_database 
+       AND b.reldatabase
+        IN (0,
+            ( SELECT oid
+                FROM pg_database
                WHERE datname = current_database()
             ))
      GROUP BY 1)
@@ -715,4 +728,142 @@ SELECT $$
    LIMIT 20;
 $$ seq_scan_tables \gset
 
+-- Monitor your cache hit ratio for tables with:
+SELECT $$
+  SELECT sum(heap_blks_read) as heap_read,
+         sum(heap_blks_hit)  as heap_hit,
+         sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)) as ratio
+    FROM pg_statio_user_tables;
+$$ cache_hit_tables \gset
 
+-- Dead tuples bloat monitoring:
+SELECT $$
+ WITH
+   constants AS (
+      SELECT
+        current_setting('block_size')::numeric AS bs,
+        23 AS hdr,
+        4 AS ma
+   ),
+   bloat_info AS (
+      SELECT ma,
+             bs,
+             schemaname,
+             tablename,
+             (datawidth + (hdr + ma - (
+                CASE
+                    WHEN hdr%ma=0
+                    THEN
+                        ma
+                    ELSE
+                        hdr%ma
+                END)))::numeric AS datahdr,
+             (maxfracsum * ( nullhdr + ma - (
+                CASE
+                    WHEN nullhdr%ma=0
+                    THEN
+                        ma
+                    ELSE
+                        nullhdr%ma
+                END))) AS nullhdr2
+        FROM (SELECT schemaname, tablename, hdr, ma, bs,
+                     SUM((1-null_frac)*avg_width) AS datawidth,
+                     MAX(null_frac) AS maxfracsum,
+                     hdr+( SELECT 1+count(*)/8
+                             FROM pg_stats s2
+                            WHERE null_frac<>0
+                              AND s2.schemaname = s.schemaname
+                              AND s2.tablename = s.tablename
+                     ) AS nullhdr
+                FROM pg_stats s,
+                     constants
+               GROUP BY 1,2,3,4,5
+            ) AS foo
+   ),
+   table_bloat AS (
+      SELECT schemaname,
+             tablename,
+             cc.relpages,
+             bs,
+             CEIL((cc.reltuples * ((datahdr + ma - (
+                CASE
+                    WHEN datahdr%ma=0
+                    THEN
+                        ma
+                    ELSE
+                        datahdr%ma
+                END)) + nullhdr2 + 4)) / (bs-20::float)) AS otta
+        FROM bloat_info
+        JOIN pg_class cc
+          ON cc.relname = bloat_info.tablename
+        JOIN pg_namespace nn
+          ON cc.relnamespace = nn.oid
+         AND nn.nspname = bloat_info.schemaname
+         AND nn.nspname <> 'information_schema'
+   ),
+   index_bloat AS (
+      SELECT schemaname,
+             tablename,
+             bs,
+             COALESCE(c2.relname, '?') AS iname,
+             COALESCE(c2.reltuples, 0) AS ituples,
+             COALESCE(c2.relpages, 0) AS ipages,
+             COALESCE(CEIL((c2.reltuples * (datahdr - 12)) / (bs-20::float)), 0) AS iotta -- very rough approximation, assumes all cols
+        FROM bloat_info
+        JOIN pg_class cc
+          ON cc.relname = bloat_info.tablename
+        JOIN pg_namespace nn
+          ON cc.relnamespace = nn.oid
+         AND nn.nspname = bloat_info.schemaname
+         AND nn.nspname <> 'information_schema'
+        JOIN pg_index i
+          ON indrelid = cc.oid
+        JOIN pg_class c2
+          ON c2.oid = i.indexrelid
+   )
+ SELECT type,
+        schemaname,
+        object_name,
+        bloat, pg_size_pretty(raw_waste) as waste
+   FROM (SELECT 'table' as type,
+                schemaname,
+                tablename as object_name,
+                ROUND(
+                  CASE
+                      WHEN otta=0
+                      THEN
+                          0.0
+                      ELSE
+                          table_bloat.relpages/otta::numeric
+                  END,1) AS bloat,
+                CASE
+                    WHEN relpages < otta
+                    THEN
+                        '0'
+                    ELSE
+                        (bs * (table_bloat.relpages - otta)::bigint)::bigint
+                END AS raw_waste
+           FROM table_bloat
+          UNION
+         SELECT 'index' as type,
+                schemaname,
+                tablename || '::' || iname as object_name,
+                ROUND(
+                  CASE
+                      WHEN iotta=0 OR ipages=0
+                      THEN
+                          0.0
+                      ELSE
+                          ipages/iotta::numeric
+                  END, 1) AS bloat,
+                CASE
+                    WHEN ipages < iotta
+                    THEN
+                        '0'
+                    ELSE
+                        (bs * (ipages - iotta))::bigint
+                END AS raw_waste
+           FROM index_bloat) bloat_summary
+  ORDER BY raw_waste DESC,
+           bloat DESC;
+$$ dead_tuples_monitor \gset
